@@ -19,8 +19,7 @@ from redis import Redis
 
 # файл, куда посыпятся логи модели
 FORMAT = '%(asctime)-15s %(message)s'
-log_file_name = "/www/app/service.log"
-logging.basicConfig(filename=log_file_name, level=logging.INFO, format=FORMAT)
+logging.basicConfig(filename="/www/app/service.log", level=logging.INFO, format=FORMAT)
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -69,17 +68,35 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         return response
 
     def get_user_watch_history(self) -> dict:
-        """ВАШ КОД ТУТ
+        user_id = self.path.split('/')[-1]
+        logging.info(f'Поступил запрос на историю пользователя user_id={user_id}')
+        redis_history_key = f'history:{user_id}'
+        if redis_interactor.is_cached(redis_history_key):
+            logging.info(f'История пользователя user_id={user_id} присутствует в кеше')
+            user_hist_list = redis_interactor.get_data(redis_history_key)
+        else:
+            logging.info(f'История пользователя user_id={user_id} отсутствует в кеше, выполняем запрос к Postgres')
+            user_history = [None, None]
+            try:
+                user_history = postgres_interactor.get_sql_result(
+                    f"""
+                    SELECT movieid, rating, timestamp 
+                    FROM ratings
+                    WHERE userid = {user_id}"""
+                    )
+            except Exception as e:
+                logging.info(f'Произошла ошибка запроса к Postgres:\n{e}')
 
-        Для каждого переданного user_id API должен возвращать историю оценок, которые ставил этот user_id в виде
+        user_hist_list = list()
+        
+        for user in user_history:
+            history = {"movie_id": int(user[0]), "rating": int(user[1]), "timestamp": user[2]}
+            user.user_hist_list.append(history)
 
-        [
-            {"movie_id": 4119470, "rating": 4, "timestamp": "2019-09-03 10:00:00"},
-            {"movie_id": 5691170, "rating": 2, "timestamp": "2019-09-05 13:23:00"},
-            {"movie_id": 3341191, "rating": 5, "timestamp": "2019-09-08 16:40:00"}
-        ]
-        """
-        return dict()
+        logging.info(f'Сохраняем историю пользователя user_id={user_id} в Redis-кеш')
+        redis_interactor.set_data(redis_history_key, user_hist_list)
+
+        return response
 
     def do_GET(self):
         # заголовки ответа
@@ -147,8 +164,6 @@ postgres_interactor = PostgresStorage()
 logging.info('Инициализирован класс для работы с Postgres')
 redis_interactor = RedisStorage()
 logging.info('Инициализирован класс для работы с Redis')
-if os.path.exists(log_file_name):
-    os.chmod(log_file_name, 0o0777)
 
 if __name__ == '__main__':
     classifier_service = socketserver.TCPServer(('', 5000), Handler)
