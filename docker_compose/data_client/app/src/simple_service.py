@@ -43,41 +43,41 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         return response
 
     def get_user_profile(self) -> dict:
-        user_id = self.path.replace('?year=', '/').replace('&month=', '/').split('/')[-3::]
-        logging.info(f'Поступил запрос по пользователю user_id={user_id[0]} за {user_id[2]} месяц {user_id[1]} года')
-        redis_profile_key = f'profile:{user_id[0], user_id[1], user_id[2]}'
+        input_data = self.path.replace('?year=', '/').replace('&month=', '/').split('/')[-3::]
+        logging.info(f'Поступил запрос по пользователю user_id={input_data[0]} за {input_data[2]} месяц {input_data[1]} года')
+        redis_profile_key = f'profile:{input_data[0], input_data[1], input_data[2]}'
         # проверяем наличие объекта в Redis-кеше
         if redis_interactor.is_cached(redis_profile_key):
-            logging.info(f'Профиль пользователя user_id={user_id[0],user_id[1], user_id[2]} присутствует в кеше')
+            logging.info(f'Профиль пользователя user_id={input_data[0],input_data[1], input_data[2]} присутствует в кеше')
             response_list = redis_interactor.get_data(redis_profile_key)
         # если ключ отcутствует в кеше - выполняем "тяжёлый" SQL-запрос в Postgres
         else:
-            logging.info(f'Профиль пользователя user_id={user_id[0]} за {user_id[2]} месяц {user_id[1]} года отсутствует в кеше, выполняем запрос к Postgres')
+            logging.info(f'Профиль пользователя user_id={input_data[0]} за {input_data[2]} месяц {input_data[1]} года отсутствует в кеше, выполняем запрос к Postgres')
             user_profile = [None, None]  # [num_rating, avg_rating]
             try:
                 user_profile = postgres_interactor.get_sql_result(
                     f"""
                     SELECT userid, rating, timestamp
                     FROM ratings
-                    WHERE userId = {user_id[0]}"""
+                    WHERE userId = {input_data[0]}"""
                 )
             except Exception as e:
                 logging.info(f'Произошла ошибка запроса к Postgres:\n{e}')
             
             response_list = list()
             for user in user_profile:
-                if (int(datetime.utcfromtimestamp(int(user[2])).strftime('%Y')) == int(user_id[1])) and (int(datetime.utcfromtimestamp(int(user[2])).strftime('%m')) == int(user_id[2])):
-                    response = {'user_id': user_id[0],
-                     'month': user_id[2],
-                     'year':user_id[1], 'rating':int(user[1])}
+                if (int(datetime.utcfromtimestamp(int(user[2])).strftime('%Y')) == int(input_data[1])) and (int(datetime.utcfromtimestamp(int(user[2])).strftime('%m')) == int(input_data[2])):
+                    response = {'user_id': input_data[0],
+                     'month': input_data[2],
+                     'year':input_data[1], 'rating':int(user[1])}
                     response_list.append(response)
-                    logging.info(f'Сохраняем профиль пользователя user_id={user_id[0]} в Redis-кеш')
+                    logging.info(f'Сохраняем профиль пользователя user_id={input_data[0]} в Redis-кеш')
                     redis_interactor.set_data(redis_profile_key, response_list)
                 else:
                     response = {'message': 'No ratings found'}
                     response_list.append(response)
                     redis_interactor.set_data(redis_profile_key, response_list)
-                    logging.info(f'Пользователь с user_id={user_id[0]} не делал оценок в {user_id[2]} месяце {user_id[1]} года')
+                    logging.info(f'Пользователь с user_id={input_data[0]} не делал оценок в {input_data[2]} месяце {input_data[1]} года')
                     break
         return response_list
 
@@ -107,7 +107,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             history = {"movie_id": int(user[0]), "rating": int(user[1]), "timestamp": user[2]}
             user_hist_list.append(history)
 
-        logging.info(f'Сохраняем историю пользователя user_id={user_id} в Redis-кеш')
+        logging.info(f'Сохраняем историю пользователя user_id={user_id в Redis-кеш}')
         redis_interactor.set_data(redis_history_key, user_hist_list)
 
         return user_hist_list
