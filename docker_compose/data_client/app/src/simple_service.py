@@ -16,6 +16,7 @@ from http import HTTPStatus
 import psycopg2
 from msgpack import packb, unpackb
 from redis import Redis
+from pymongo import MongoClient
 from datetime import datetime
 
 # файл, куда посыпятся логи модели
@@ -40,6 +41,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         # Реализуем API /user/watchhistory/user_id
         elif self.path.startswith('/user/watchhistory'):
             response = self.get_user_watch_history()
+        elif self.path.startswith('/movie/tags'):
+            response = self.get_movie_tags()
         return response
 
     def get_user_profile(self) -> dict:
@@ -107,10 +110,27 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             history = {"movie_id": int(user[0]), "rating": int(user[1]), "timestamp": user[2]}
             user_hist_list.append(history)
 
-        logging.info(f'Сохраняем историю пользователя user_id={user_id в Redis-кеш}')
+        logging.info(f'Сохраняем историю пользователя user_id={user_id} в Redis-кеш')
         redis_interactor.set_data(redis_history_key, user_hist_list)
 
         return user_hist_list
+
+    def get_movie_tags(self) -> dict:
+        movie_id = int(self.path.split('/')[-1])
+        logging.info(f'Поступил запрос на фильм с movie_id={movie_id}')
+        try:
+            cursor = mongo_interactor.get_data(movie_id)
+        except Exception as e:
+            logging.info(f'Произошла ошибка запроса к Mongo:\n{e}')
+
+        movie_tag_list = list()
+
+        for dictionary in cursor:
+            del dictionary['_id']
+            movie_tag_list.append(dictionary)
+            
+        return movie_tag_list
+
 
     def do_GET(self):
         # заголовки ответа
@@ -173,11 +193,30 @@ class RedisStorage:
     def is_cached(self, redis_key: str) -> bool:
         return self.storage.exists(redis_key)
 
+class MongoStorage:
+    def __init__(self):
+        mongo_conf = {
+            "host": os.environ['APP_MONGO_HOST'],
+            "port": int(os.environ['APP_MONGO_PORT'])
+        }
+        storage = MongoClient(**mongo_conf)
+        self.mongo_movies_storage = storage.get_database("movies")
+
+    def get_data(self, id):
+        doc = {'movie_id': f"{id}"}
+        collection = self.mongo_movies_storage.get_collection("tags")
+        mongo_doc = collection.find(doc)
+        return mongo_doc
+
+
+
 
 postgres_interactor = PostgresStorage()
 logging.info('Инициализирован класс для работы с Postgres')
 redis_interactor = RedisStorage()
 logging.info('Инициализирован класс для работы с Redis')
+mongo_interactor = MongoStorage()
+logging.info('Инициализирован класс для работы с Mongo')
 
 if __name__ == '__main__':
     classifier_service = socketserver.TCPServer(('', 5000), Handler)
