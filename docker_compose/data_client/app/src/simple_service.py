@@ -116,19 +116,19 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         return user_hist_list
 
     def get_movie_tags(self) -> dict:
+        collection_name = 'tags'
         movie_id = int(self.path.split('/')[-1])
         logging.info(f'Поступил запрос на фильм с movie_id={movie_id}')
         try:
-            cursor = mongo_interactor.get_data(movie_id)
+            cursor = mongo_interactor.get_data(movie_id, collection_name)
         except Exception as e:
             logging.info(f'Произошла ошибка запроса к Mongo:\n{e}')
 
         movie_tag_list = list()
 
         for dictionary in cursor:
-            del dictionary['_id']
             movie_tag_list.append(dictionary)
-            
+
         return movie_tag_list
 
 
@@ -202,10 +202,10 @@ class MongoStorage:
         storage = MongoClient(**mongo_conf)
         self.mongo_movies_storage = storage.get_database("movies")
 
-    def get_data(self, id):
-        doc = {'movie_id': f"{id}"}
-        collection = self.mongo_movies_storage.get_collection("tags")
-        mongo_doc = collection.find(doc)
+    def get_data(self, id, col_name):
+        doc = {'movie_id': f"{id}"},{'_id': 0}
+        collection = self.mongo_movies_storage.get_collection(col_name)
+        mongo_doc = collection.find(doc[0],doc[1])
         return mongo_doc
 
 
